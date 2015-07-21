@@ -1,0 +1,327 @@
+package com.example.excel;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import org.apache.http.NameValuePair;
+
+import jxl.Cell;
+import jxl.Sheet;
+import jxl.Workbook;
+import android.app.Activity;
+import android.content.ContentValues;
+import android.content.Context;
+import android.database.SQLException;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+import android.os.Bundle;
+import android.util.Log;
+
+public class MainActivity extends Activity {
+
+	public static final int X_START = 1;
+	public static final int X_END = 9;
+	public static final int X_LUNCH = 4;
+	public static final int Y_START = 3;
+	public static final int Y_END = 95;
+	public static final int LUNCH_COLUMN_NAME = X_LUNCH - X_START + 1;
+	public static final String FILENAME = "timetable.xls";
+
+	public static final String C_DAY = "day";
+
+	public static final int MON = 1;
+	public static final int TUE = 2;
+	public static final int WED = 3;
+	public static final int THU = 4;
+	public static final int FRI = 5;
+	public static final int SAT = 6;
+
+	int yskip1 = 66;
+
+	static final String TAG = "EXCEL_MAIN";
+	public static final String DB_NAME = "ODD2013.db";
+	public static final int DB_VERSION = 1;
+
+	DbHelper dbHelper;
+	List<String> overallBatchList = new ArrayList<String>();
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		setContentView(R.layout.activity_main);
+
+		dbHelper = new DbHelper(this);
+		dbHelper.getWritableDatabase();
+		// Log.d(TAG," " + getExternalStorageDirectory()
+		// .getAbsolutePath());
+		readCell();
+
+		dbHelper.close();
+
+	}
+
+	private String readCell() {
+		try {
+			Workbook workbook;
+			workbook = Workbook.getWorkbook(getAssets().open(FILENAME));
+			Sheet sheet = workbook.getSheet(0);
+
+			for (int j = Y_START; j <= Y_END; ++j) {
+				if (j == (yskip1 - 1))
+					continue;
+				for (int i = X_START; i <= X_END; ++i) {
+					if (i == X_LUNCH)
+						continue;
+					String tmp = sheet.getCell(i, j).getContents()
+							.replaceAll("\\s", "");
+					if (tmp != "") {
+						Log.d(TAG, "cell (" + i + "," + j + ") : " + tmp);
+						int d = getDay(sheet, j);
+						Log.d(TAG, "day : " + d);
+
+						manage(tmp, i - X_START + 1, d);
+
+					}
+
+				}
+
+			}
+
+			Log.d(TAG, "done!!!");
+
+		} catch (Exception e) {
+			Log.d(TAG, "error!!!!!!");
+
+			e.printStackTrace();
+		}
+		return null;
+
+	}
+
+	private int getDay(Sheet sheet, int index) {
+		int day = Calendar.SUNDAY;
+		for (int j = Y_START; j < Y_END; ++j) {
+			if (sheet.getCell(X_START - 1, j).getContents().trim() != "")
+				++day;
+			if (j == index)
+				return day;
+		}
+		return 0;
+	}
+
+	private void manage(String str, int columnIndex, int day) {
+		char classType;
+		String subCode;
+		String room;
+		String teacherCode;
+
+		String tmp;
+		try {
+			classType = str.charAt(0);
+			subCode = str.substring(str.indexOf('(') + 1, str.indexOf(')'));
+
+			tmp = (str.substring(str.indexOf(")-") + 2));
+
+			int i = 0;
+			for (; i < tmp.length(); ++i) {
+				if (tmp.charAt(i) == '/' || tmp.charAt(i) == ',')
+					break;
+			}
+			room = tmp.substring(0, i);
+
+			teacherCode = tmp.substring(i + 1);
+
+			tmp = str.substring(1, str.indexOf('('));
+			List<String> batch = new ArrayList<String>();
+			extractBatch(tmp, batch);
+			manageTable(batch, classType, subCode, room, teacherCode,
+					columnIndex + 8, day);
+
+		} catch (Exception e) {
+			Log.e(TAG, "error string");
+			e.printStackTrace();
+		}
+
+	}
+
+	private void manageTable(List<String> batchlist, char classType,
+			String subCode, String room, String teacherCode,
+			int databaseColumnIndex, int day) {
+
+		SQLiteDatabase db;
+		db = dbHelper.getWritableDatabase();
+		for (String batch : batchlist) {
+			if (!doesTableExist(batch))
+				createTable(batch, db);
+			
+			ContentValues values = new ContentValues();
+			String data = classType + "-" + subCode + "-" + room + "-"
+					+ teacherCode;
+			values.put("c" + databaseColumnIndex, data);
+
+			db.update(batch, values, C_DAY + "='" + String.valueOf(day) + "'",
+					null);
+
+		}
+		db.close();
+
+	}
+
+	private void createTable(String batch, SQLiteDatabase db) {
+		String sql = String
+				.format("create table %s"
+						+ "(%s int primary key, %s text, %s text, %s text, %s text, %s text, %s text, %s text, %s text, %s text)",
+						batch, C_DAY, "c9", "c10", "c11", "c12", "c13", "c14",
+						"c15", "c16", "c17");
+		Log.d(TAG, "createTable  : " + sql);
+		try {
+			db.execSQL(sql);
+			Log.e(TAG, batch + " created");
+			overallBatchList.add(batch);
+			initRow(batch, db);
+
+		} catch (SQLException e) {
+			Log.e(TAG, batch + " Table creation or insertion error");
+			e.printStackTrace();
+		}
+
+	}
+
+	private void initRow(String batch, SQLiteDatabase db) {
+
+		for (int day = Calendar.MONDAY; day <= Calendar.SATURDAY; ++day) {
+			ContentValues values = new ContentValues();
+			values.put(C_DAY, day);
+
+			String data = null;
+
+			for (int i = 9; i <= 17; ++i) {
+				if (i == LUNCH_COLUMN_NAME)
+					data = "lunch";
+				values.put("c" + i, data);
+			}
+
+			db.insert(batch, null, values);
+			// db.insertWithOnConflict(batch, null, values,
+			// SQLiteDatabase.CONFLICT_IGNORE);
+
+		}
+	}
+
+	private boolean doesTableExist(String checkBatch) {
+		for (String batch : overallBatchList) {
+			if (batch.equals(checkBatch))
+				return true;
+		}
+		return false;
+	}
+
+	private void extractBatch(String str, List<String> batch) {
+		Pattern p1 = Pattern.compile("\\w+");
+
+		Matcher matcher = p1.matcher(str);
+		while (matcher.find()) {
+			batch.add(str.substring(matcher.start(), matcher.end()));
+			// Log.d("excel", str.substring(matcher.start(), matcher.end()));
+		}
+
+		p1 = Pattern.compile("(\\w+)-(\\w+)");
+		matcher = p1.matcher(str);
+		while (matcher.find()) {
+			int start, end;
+			String tmp = str.substring(matcher.start(), matcher.end());
+
+			Pattern p2 = Pattern.compile("\\d+");
+
+			Matcher matcher1 = p2.matcher(tmp);
+			matcher1.find();
+			start = Integer.parseInt(tmp.substring(matcher1.start(),
+					matcher1.end()));
+			matcher1.find();
+			end = Integer.parseInt(tmp.substring(matcher1.start(),
+					matcher1.end()));
+
+			for (++start; start < end; ++start) {
+				batch.add("" + tmp.charAt(0) + start);
+				// Log.d(TAG, " " + tmp.charAt(0) + start);
+			}
+
+		}
+
+		/*
+		 * for(int i=0 ; i<tmp.length() ; ++i) { if (tmp.charAt(i) == ',') {
+		 * batch.add(tmp.substring(0, i)); tmp = tmp.substring(i+1); i=0; } }
+		 */
+	}
+
+	class DbHelper extends SQLiteOpenHelper {
+		public DbHelper(Context context) {
+			super(context, DB_NAME, null, DB_VERSION);
+			Log.d(TAG, "DbHelper");
+		}
+
+		@Override
+		public void onCreate(SQLiteDatabase db) {
+
+		}
+
+		@Override
+		public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+			String sql = String.format("create table %s"
+					+ "(%s text primary key, %s text, %s int)", "subjectLink",
+					"code", "link", "LTP");
+			Log.d(TAG, "onCreate with SQL : " + sql);
+			db.execSQL(sql);
+
+		}
+
+	}
+
+	private void print(Sheet sheet) {
+		for (int i = 0; i < 110; ++i) {
+			System.out.println("A" + (i + 1) + " : "
+					+ sheet.getCell(0, i).getContents());
+			String tmp = null;
+			extract(tmp);
+			// System.out.println("B" + (i+1) +" : " +
+			// sheet.getCell(1,i).getContents() + "     " + "C" + (i+1) +" : " +
+			// sheet.getCell(2,i).getContents());
+		}
+
+	}
+
+	private String extract(String str) {
+
+		List<Class> cls = new ArrayList<Class>();
+		Class tmpCls = new Class();
+
+		str = str.trim();
+		tmpCls.classType = str.charAt(0);
+		tmpCls.subCode = str.substring(str.indexOf('(') + 1,
+				str.indexOf(')') - 1);
+
+		String tmp;
+		tmp = str.substring(1, str.indexOf('(') - 1);
+		Pattern p1 = Pattern.compile("[^-,][^-,]");
+
+		Matcher matcher = p1.matcher(str);
+		if (matcher.find()) {
+			return str.substring(matcher.start() + 1, matcher.end() - 1);
+		}
+		return str;
+
+	}
+
+	public static class Class {
+		char classType;
+		String batch;
+		String subCode;
+		String room;
+		String teacherCode;
+
+	}
+
+}
