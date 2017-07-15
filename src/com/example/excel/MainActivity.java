@@ -27,12 +27,16 @@ public class MainActivity extends Activity {
 	int X_START = 2;
 	int Y_START = 3;
 	int X_END = 10;
-	int Y_END = 92;
+	int Y_END = 93;
 
-	final String INPUT_FILENAME = "sem6.xls";
-	final String OUTPUT_DB_NAME = "sem6.db";
+	
+	//ONLY .XLS IS ACCEPTED (.XLSX NOT ACCEPTED)
+	
+	final String INPUT_FILENAME = "sem5.xls";
+	final String OUTPUT_DB_NAME = "sem5.db";
 
-	// FULL SUBJECT CODE FILE IS PRESENT IN RAW FOLDER.
+	// PUT FULL SUBJECT CODE FILE IN RAW FOLDER.
+	// PUT EXCEL SHEET IS IN ASSEST FOLDER.
 
 	public static final String C_DAY = "day";
 
@@ -93,7 +97,7 @@ public class MainActivity extends Activity {
 							String tmp = sheet.getCell(i, j).getContents()
 									.replaceAll("\\s", "");
 							tmp = tmp.toUpperCase().trim();
-
+							
 							if (tmp.equals("LUNCH"))
 								continue;
 
